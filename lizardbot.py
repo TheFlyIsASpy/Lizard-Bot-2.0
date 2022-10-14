@@ -2,7 +2,6 @@ import asyncio
 from discord.ext import commands
 import discord
 import json
-import sqlite3
 import os
 
 class LizardBotClient(commands.Bot):

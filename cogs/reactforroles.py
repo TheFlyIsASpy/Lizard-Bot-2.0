@@ -1,8 +1,8 @@
-from discord import TextChannel
 from discord.ext import commands
 import sqlite3
 import emoji
 import re
+from asyncio import TimeoutError
 
 class ReactForRoles(commands.Cog):
     def __init__(self, bot):
@@ -18,32 +18,32 @@ class ReactForRoles(commands.Cog):
         #do later
     
     @commands.command()
-    async def reactionroles(self, ctx, arg):
+    async def reactforroles(self, ctx, arg):
         if not arg:
-            await ctx.send("You must provide an arguement: Update, Add, Delete")
+            await ctx.send("You must provide an arguement: Add, Delete, RemoveAll")
         match(arg.lower()):
-            case "update":
-                await self.update(ctx)
+            case "removeall":
+                await self.remove_all(ctx)
             case "add":
                 await self.add(ctx)
             case "delete":
                 await self.delete(ctx)
             case _:
-                await ctx.send("You must provide an arguement: Update, Add, Delete")
+                await ctx.send("You must provide an arguement: Add, Delete, RemoveAll")
     
-    async def update(self, ctx):
-        print()
-        #todo
+    async def wait_reply(self, ctx):
+        return await self.bot.wait_for('message', check = lambda m: m.channel == ctx.channel and ctx.author == m.author, timeout=30)
+    
+    async def get_message(self, ctx):
+        await ctx.send("Link the channel the message is in. EX: #general")
 
-    async def add(self, ctx):
-        await ctx.send("Link the channel the message will be in. EX: #general")
+        try:
+            reply = await self.wait_reply(ctx)
+        except TimeoutError:
+            await ctx.send("Request timed out, cancelling")
+            return
 
-        def replyCheck(m):
-            return m.channel == ctx.channel and m.author == ctx.author
-
-        reply = await self.bot.wait_for('message', check = replyCheck)
         reply = re.sub(r'[^0-9]', '', reply.content)
-
 
         try:
             reply = int(reply)
@@ -54,12 +54,17 @@ class ReactForRoles(commands.Cog):
         channel = ctx.guild.get_channel_or_thread(reply)
 
         if not channel:
-            await ctx.send("Could not find channel")
+            await ctx.send("Could not find channel or reply was not a channel")
             return
         
-        await ctx.send("Send the message id of the message to be reacted to. EX: 789960857302859796")
+        await ctx.send("Right click, copy ID, and send the message ID of the message to be reacted to. EX: 789960857302859796")
 
-        reply = await self.bot.wait_for('message', check = replyCheck)
+        try:
+            reply = await self.wait_reply(ctx)
+        except TimeoutError:
+            await ctx.send("Request timed out, cancelling")
+            return
+
         reply = reply.content
 
         try:
@@ -71,41 +76,57 @@ class ReactForRoles(commands.Cog):
         message = await channel.fetch_message(reply)
 
         if not message:
-            await ctx.send("Could not find message")
+            await ctx.send("Could not find message or reply was not a valid message ID")
             return
         
+        return message
+
+    async def add(self, ctx):
+        
+        message = await self.get_message(ctx)
+
         values = []
         while True:
             await ctx.send("Send the emote you would like to link to a role or 'done' to finish")
 
-            reply = await self.bot.wait_for('message', check = replyCheck)
+            try:
+                reply = await self.wait_reply(ctx)
+            except TimeoutError:
+                await ctx.send("Request timed out, cancelling")
+                return
+            
             reply = reply.content.split()
 
             if reply[0].lower() == "done":
                 break
 
             if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
-                await ctx.send("Message recieved was not an emote")
+                await ctx.send("Reply recieved was not an emote")
                 return
             
             emote = reply[0]
 
             await ctx.send("@ the role to assign to this emote. EX: @member")
 
-            reply = await self.bot.wait_for('message', check = replyCheck)
+            try:
+                reply = await self.wait_reply(ctx)
+            except TimeoutError:
+                await ctx.send("Request timed out, cancelling")
+                return
+            
             reply = re.sub(r'[^0-9]', '', reply.content)
 
             try:
                 reply = int(reply)
             except ValueError:
                 print(reply)
-                await ctx.send("Invalid role recieved from @")
+                await ctx.send("Reply recieved was not a valid role")
                 return
             
             role = ctx.guild.get_role(reply)
 
             if not role:
-                await ctx.send("Invalid role, may be a bot role")
+                await ctx.send("Invalid role, may be a bot role, or I don't have permission to get that role")
                 return
             
             values.append((ctx.guild.id, message.id, emote, role.id))
@@ -113,10 +134,98 @@ class ReactForRoles(commands.Cog):
         with sqlite3.connect("database.db") as con:
             db = con.cursor()
             db.executemany("INSERT OR IGNORE INTO reactionroles VALUES(?,?,?,?)", values)
+        
+        await ctx.send("Your react for roles have been added 🦎")
 
-    async def delete(self, ctx):
-        print()
-        #todo
+    async def delete(self, ctx): 
+        message = await self.get_message(ctx)
+        
+        while True:
+            await ctx.send("Send the emote to delete roles for or 'done'")
+
+            try:
+                reply = await self.wait_reply(ctx)
+            except TimeoutError:
+                await ctx.send("Request timed out, cancelling")
+                return
+            
+            reply = reply.content.split()
+
+            if reply[0].lower() == "done":
+                break
+
+            if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
+                await ctx.send("Reply recieved was not an emote")
+                return
+            
+            emote = reply[0]
+
+            while True:
+                await ctx.send("@ the role to remove from this emote or 'done'. (use 'all' to delete all)")
+
+                try:
+                    reply = await self.wait_reply(ctx)
+                except TimeoutError:
+                    await ctx.send("Request timed out, cancelling")
+                    return
+                
+                if reply.content.lower() == "done":
+                    break;
+                
+                if reply.content.lower() == "all":
+                    with sqlite3.connect("database.db") as con:
+                        db = con.cursor()
+                        db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(ctx.guild.id, message.id, emote))
+                    break
+                
+                reply = re.sub(r'[^0-9]', '', reply.content)
+
+                try:
+                    reply = int(reply)
+                except ValueError:
+                    print(reply)
+                    await ctx.send("Reply recieved was not a valid role")
+                    return
+                
+                role = ctx.guild.get_role(reply)
+
+                if not role:
+                    await ctx.send("Invalid role, may be a bot role, or I don't have permission to get that role")
+                    return
+                
+                with sqlite3.connect("database.db") as con:
+                    db = con.cursor()
+                    db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}' and role={}".format(ctx.guild.id, message.id, emote, role.id))
+        
+    async def remove_all(self, ctx):
+        message = await self.get_message(ctx)
+        
+        while True:
+            await ctx.send("Send the emote to delete all roles for or 'done'")
+
+            try:
+                reply = await self.wait_reply(ctx)
+            except TimeoutError:
+                await ctx.send("Request timed out, cancelling")
+                return
+            
+            reply = reply.content.split()
+
+            if reply[0].lower() == "done":
+                break
+
+            if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
+                await ctx.send("Reply recieved was not an emote")
+                return
+            
+            emote = reply[0]
+
+            with sqlite3.connect("database.db") as con:
+                db = con.cursor()
+                db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(ctx.guild.id, message.id, emote))
+
+
+            
 
 async def setup(bot):
     await bot.add_cog(ReactForRoles(bot))
