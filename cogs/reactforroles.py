@@ -14,8 +14,19 @@ class ReactForRoles(commands.Cog):
 
     @commands.Cog.listener("on_raw_reaction_add")
     async def on_reaction_add(self, payload):
-        print("working! flicks tongue")
-        #do later
+        rows = []
+        with sqlite3.connect("database.db") as con:
+            db = con.cursor()
+            rows = db.execute("SELECT * FROM reactionroles WHERE guildID={} AND messageID={} AND emote='{}'".format(payload.guild_id, payload.message_id, payload.emoji)).fetchall()
+        
+        if len(rows) <= 0:
+            return
+        
+        roles = []
+        for r in rows:
+            roles.append(payload.member.guild.get_role(r[3]))
+        
+        await payload.member.add_roles(*roles)
     
     @commands.command()
     async def reactforroles(self, ctx, arg):
@@ -176,6 +187,7 @@ class ReactForRoles(commands.Cog):
                     with sqlite3.connect("database.db") as con:
                         db = con.cursor()
                         db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(ctx.guild.id, message.id, emote))
+                    await ctx.send("All roles removed from emote 🦎")
                     break
                 
                 reply = re.sub(r'[^0-9]', '', reply.content)
@@ -196,33 +208,30 @@ class ReactForRoles(commands.Cog):
                 with sqlite3.connect("database.db") as con:
                     db = con.cursor()
                     db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}' and role={}".format(ctx.guild.id, message.id, emote, role.id))
+            await ctx.send("Selected roles have been deleted from emote 🦎")
         
     async def remove_all(self, ctx):
-        message = await self.get_message(ctx)
-        
         while True:
-            await ctx.send("Send the emote to delete all roles for or 'done'")
+            message = await self.get_message(ctx)
+
+            with sqlite3.connect("database.db") as con:
+                db = con.cursor()
+                db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={}".format(ctx.guild.id, message.id))
+            
+            await ctx.send("All react for roles removed from message 🦎. Type r to remove another")
 
             try:
                 reply = await self.wait_reply(ctx)
             except TimeoutError:
-                await ctx.send("Request timed out, cancelling")
                 return
             
-            reply = reply.content.split()
-
-            if reply[0].lower() == "done":
+            if not reply.content.lower() == "r":
                 break
-
-            if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
-                await ctx.send("Reply recieved was not an emote")
-                return
             
-            emote = reply[0]
 
-            with sqlite3.connect("database.db") as con:
-                db = con.cursor()
-                db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(ctx.guild.id, message.id, emote))
+
+            
+
 
 
             
