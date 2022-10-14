@@ -1,1 +1,4 @@
-config.json
+*.json
+database.db
+.vscode
+__pycache__

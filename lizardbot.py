@@ -1,18 +1,31 @@
+import asyncio
+from discord.ext import commands
 import discord
 import json
+import sqlite3
+import os
 
-class LizardBotClient(discord.Client):
+class LizardBotClient(commands.Bot):
+
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.reactions = True
+
+        super().__init__(intents=intents, command_prefix=["<@932816670756577281> ", "<@!932816670756577281> "])
+
     async def on_ready(self):
         print(f"Lizard has been warmed and ready to eat bug as {self.user}")
-    
-    async def on_message(self, message):
-        if message.user == self.user:
-            return
-        #add a command to set react for roll message
-        print(message.content)
-    
-    async def on_reaction_add(self, reaction, user):
-        return #implement this
+
+async def load_extentions():
+    for filename in os.listdir("./cogs"):
+        if filename.endswith(".py"):
+            await bot.load_extension(f"cogs.{filename[:-3]}")
+
+async def startup():
+    async with bot:
+        await load_extentions()
+        await bot.start(token)
     
 if __name__ == "__main__":
     f = open("config.json")
@@ -21,11 +34,7 @@ if __name__ == "__main__":
     token = ""
     if config_data["token"]:
         token = config_data["token"]
-    
 
-    intents = discord.Intents.default()
-    intents.message_content = True
-    intents.reactions = True
+    bot = LizardBotClient()
 
-    bot = LizardBotClient(intents=intents)
-    bot.run(token)
+    asyncio.run(startup())
