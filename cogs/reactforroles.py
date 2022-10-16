@@ -29,7 +29,8 @@ class ReactForRoles(commands.Cog):
         await payload.member.add_roles(*roles)
     
     @commands.command()
-    async def reactforroles(self, ctx, arg):
+    @commands.has_permissions(administrator=True)
+    async def reactionroles(self, ctx, arg):
         if not arg:
             await ctx.send("You must provide an arguement: Add, Delete, RemoveAll")
         match(arg.lower()):
