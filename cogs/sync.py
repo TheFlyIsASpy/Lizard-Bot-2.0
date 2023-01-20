@@ -37,5 +37,14 @@ class Sync(commands.Cog):
 
         await ctx.send(f"Synced the tree to {ret}/{len(guilds)}.")
 
+    @commands.command()
+    @commands.has_permissions(administrator=True)
+    async def clear(self, ctx: Context, type: Optional[Literal["guild", "global"]]):
+        if type.lower() == "guild":
+            await ctx.bot.tree.clear_commands(guild=ctx.guild)
+        elif type.lower() == "global":
+            await ctx.bot.tree.clear_commands()
+
+
 async def setup(bot):
     await bot.add_cog(Sync())
