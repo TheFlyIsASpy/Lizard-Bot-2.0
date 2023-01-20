@@ -1,4 +1,6 @@
 from discord.ext import commands
+from discord import app_commands
+import discord
 import sqlite3
 import emoji
 import re
@@ -28,83 +30,77 @@ class ReactForRoles(commands.Cog):
         
         await payload.member.add_roles(*roles)
     
-    @commands.command()
-    @commands.has_permissions(administrator=True)
-    async def reactionroles(self, ctx, arg):
-        if not arg:
-            await ctx.send("You must provide an arguement: Add, Delete, RemoveAll")
-        match(arg.lower()):
-            case "removeall":
-                await self.remove_all(ctx)
-            case "add":
-                await self.add(ctx)
-            case "delete":
-                await self.delete(ctx)
-            case _:
-                await ctx.send("You must provide an arguement: Add, Delete, RemoveAll")
-    
-    async def wait_reply(self, ctx):
-        return await self.bot.wait_for('message', check = lambda m: m.channel == ctx.channel and ctx.author == m.author, timeout=30)
-    
-    async def get_message(self, ctx):
-        await ctx.send("Link the channel the message is in. EX: #general")
+    async def get_message(self, interaction : discord.Interaction, channel, message_id):
+        channel_id = re.sub(r'[^0-9]', '', channel)
 
         try:
-            reply = await self.wait_reply(ctx)
-        except TimeoutError:
-            await ctx.send("Request timed out, cancelling")
-            return
-
-        reply = re.sub(r'[^0-9]', '', reply.content)
-
-        try:
-            reply = int(reply)
+            channel_id = int(channel_id)
         except ValueError:
-            await ctx.send("Invalid channel link")
+            await interaction.followup.send("Invalid channel link")
             return
 
-        channel = ctx.guild.get_channel_or_thread(reply)
+        channel = interaction.guild.get_channel_or_thread(channel_id)
 
         if not channel:
-            await ctx.send("Could not find channel or reply was not a channel")
-            return
-        
-        await ctx.send("Right click, copy ID, and send the message ID of the message to be reacted to. EX: 789960857302859796")
-
-        try:
-            reply = await self.wait_reply(ctx)
-        except TimeoutError:
-            await ctx.send("Request timed out, cancelling")
+            await interaction.followup.send("Could not find channel or reply was not a channel")
             return
 
-        reply = reply.content
-
         try:
-            reply = int(reply)
+            message_id = int(message_id)
         except ValueError:
-            await ctx.send("Invalid message id")
+            await interaction.followup.send("Invalid message id")
             return
 
-        message = await channel.fetch_message(reply)
+        message = await channel.fetch_message(message_id)
 
         if not message:
-            await ctx.send("Could not find message or reply was not a valid message ID")
+            await interaction.followup.send("Could not find message or reply was not a valid message ID")
             return
-        
+
         return message
 
-    async def add(self, ctx):
-        
-        message = await self.get_message(ctx)
+    async def wait_reply(self, interaction : discord.Interaction):
+        return await self.bot.wait_for('message', check = lambda m: m.channel == interaction.channel and interaction.user.id == m.author.id, timeout=30)
 
+    @app_commands.command(
+        name = "rr_remove_all",
+        description = "Removes all react-for-roles from message in the provided channel with given id"
+    )
+    @app_commands.describe(
+        channel = "Channel where message is located ex: #general",
+        message_id = "ID of message to remove all react-for-roles from"
+    )
+    @app_commands.checks.has_permissions(administrator = True)
+    async def rr_remove_all(self, interaction: discord.Interaction, channel : str, message_id : str):
+        message = await self.get_message(interaction, channel, message_id)
+
+        with sqlite3.connect("database.db") as con:
+            db = con.cursor()
+            db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={}".format(interaction.guild_id, message.id))
+        
+        await interaction.response.send_message("All react for roles removed from message 🦎")
+    
+    @app_commands.command(
+        name = "rr_add",
+        description = "Begins the process of adding react-for-roles to message in provided channel with given id"
+    )
+    @app_commands.describe(
+        channel = "Channel where message is located ex: #general",
+        message_id = "ID of message to add react-for-roles to"
+    )
+    @app_commands.checks.has_permissions(administrator = True)
+    async def rr_add(self, interaction : discord.Interaction, channel : str, message_id : str):
+        message = await self.get_message(interaction, channel, message_id)
         values = []
         while True:
-            await ctx.send("Send the emote you would like to link to a role or 'done' to finish")
-
+            if interaction.response.is_done():
+                await interaction.followup.send("Send the emote you would like to link to a role or 'done' to finish")
+            else:
+                await interaction.response.send_message("Send the emote you would like to link to a role or 'done' to finish")
             try:
-                reply = await self.wait_reply(ctx)
+                reply = await self.wait_reply(interaction)
             except TimeoutError:
-                await ctx.send("Request timed out, cancelling")
+                await interaction.followup.send("Request timed out, cancelling")
                 return
             
             reply = reply.content.split()
@@ -113,17 +109,17 @@ class ReactForRoles(commands.Cog):
                 break
 
             if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
-                await ctx.send("Reply recieved was not an emote")
+                await interaction.reponse.send_message("Reply recieved was not an emote")
                 return
             
             emote = reply[0]
 
-            await ctx.send("@ the role to assign to this emote. EX: @member")
+            await interaction.followup.send("@ the role to assign to this emote. EX: @member")
 
             try:
-                reply = await self.wait_reply(ctx)
+                reply = await self.wait_reply(interaction)
             except TimeoutError:
-                await ctx.send("Request timed out, cancelling")
+                await interaction.followup.send("Request timed out, cancelling")
                 return
             
             reply = re.sub(r'[^0-9]', '', reply.content)
@@ -132,33 +128,45 @@ class ReactForRoles(commands.Cog):
                 reply = int(reply)
             except ValueError:
                 print(reply)
-                await ctx.send("Reply recieved was not a valid role")
+                await interaction.followup.send("Reply recieved was not a valid role")
                 return
             
-            role = ctx.guild.get_role(reply)
+            role = interaction.guild.get_role(reply)
 
             if not role:
-                await ctx.send("Invalid role, may be a bot role, or I don't have permission to get that role")
+                await interaction.followup.send("Invalid role, may be a bot role, or I don't have permission to get that role")
                 return
             
-            values.append((ctx.guild.id, message.id, emote, role.id))
+            values.append((interaction.guild.id, message.id, emote, role.id))
 
         with sqlite3.connect("database.db") as con:
             db = con.cursor()
             db.executemany("INSERT OR IGNORE INTO reactionroles VALUES(?,?,?,?)", values)
         
-        await ctx.send("Your react for roles have been added 🦎")
+        await interaction.followup.send("Your react for roles have been added 🦎")
 
-    async def delete(self, ctx): 
-        message = await self.get_message(ctx)
+    @app_commands.command(
+        name = "rr_delete",
+        description = "Begins the process of deleting react-for-roles from message in provided channel with given id"
+    )
+    @app_commands.describe(
+        channel = "Channel where message is located ex: #general",
+        message_id = "ID of message to delete react-for-roles from"
+    )
+    @app_commands.checks.has_permissions(administrator = True)
+    async def rr_delete(self, interaction : discord.Interaction, channel : str, message_id : str):
+        message = await self.get_message(interaction, channel, message_id)
         
         while True:
-            await ctx.send("Send the emote to delete roles for or 'done'")
+            if interaction.response.is_done():
+                await interaction.followup.send("Send the emote to delete roles for or 'done'")
+            else:
+                await interaction.response.send_message("Send the emote to delete roles for or 'done'")
 
             try:
-                reply = await self.wait_reply(ctx)
+                reply = await self.wait_reply(interaction)
             except TimeoutError:
-                await ctx.send("Request timed out, cancelling")
+                await interaction.followup.send("Request timed out, cancelling")
                 return
             
             reply = reply.content.split()
@@ -167,28 +175,28 @@ class ReactForRoles(commands.Cog):
                 break
 
             if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
-                await ctx.send("Reply recieved was not an emote")
+                await interaction.followup.send("Reply recieved was not an emote")
                 return
             
             emote = reply[0]
 
             while True:
-                await ctx.send("@ the role to remove from this emote or 'done'. (use 'all' to delete all)")
+                await interaction.followup.send("@ the role to remove from this emote or 'done'. (use 'all' to delete all)")
 
                 try:
-                    reply = await self.wait_reply(ctx)
+                    reply = await self.wait_reply(interaction)
                 except TimeoutError:
-                    await ctx.send("Request timed out, cancelling")
+                    await interaction.followup.send("Request timed out, cancelling")
                     return
                 
                 if reply.content.lower() == "done":
-                    break;
+                    break
                 
                 if reply.content.lower() == "all":
                     with sqlite3.connect("database.db") as con:
                         db = con.cursor()
-                        db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(ctx.guild.id, message.id, emote))
-                    await ctx.send("All roles removed from emote 🦎")
+                        db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(interaction.guild.id, message.id, emote))
+                    await interaction.followup.send("All roles removed from emote 🦎")
                     break
                 
                 reply = re.sub(r'[^0-9]', '', reply.content)
@@ -197,45 +205,19 @@ class ReactForRoles(commands.Cog):
                     reply = int(reply)
                 except ValueError:
                     print(reply)
-                    await ctx.send("Reply recieved was not a valid role")
+                    await interaction.followup.send("Reply recieved was not a valid role")
                     return
                 
-                role = ctx.guild.get_role(reply)
+                role = interaction.guild.get_role(reply)
 
                 if not role:
-                    await ctx.send("Invalid role, may be a bot role, or I don't have permission to get that role")
+                    await interaction.followup.send("Invalid role, may be a bot role, or I don't have permission to get that role")
                     return
                 
                 with sqlite3.connect("database.db") as con:
                     db = con.cursor()
-                    db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}' and role={}".format(ctx.guild.id, message.id, emote, role.id))
-            await ctx.send("Selected roles have been deleted from emote 🦎")
-        
-    async def remove_all(self, ctx):
-        while True:
-            message = await self.get_message(ctx)
-
-            with sqlite3.connect("database.db") as con:
-                db = con.cursor()
-                db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={}".format(ctx.guild.id, message.id))
-            
-            await ctx.send("All react for roles removed from message 🦎. Type r to remove another")
-
-            try:
-                reply = await self.wait_reply(ctx)
-            except TimeoutError:
-                return
-            
-            if not reply.content.lower() == "r":
-                break
-            
-
-
-            
-
-
-
-            
+                    db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}' and role={}".format(interaction.guild.id, message.id, emote, role.id))
+            await interaction.followup.send("Selected roles have been deleted from emote 🦎")
 
 async def setup(bot):
     await bot.add_cog(ReactForRoles(bot))

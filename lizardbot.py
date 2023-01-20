@@ -11,7 +11,7 @@ class LizardBotClient(commands.Bot):
         intents.message_content = True
         intents.reactions = True
 
-        super().__init__(intents=intents, command_prefix=["<@932816670756577281> ", "<@!932816670756577281> "])
+        super().__init__(intents=intents, command_prefix=["<@932816670756577281> ", "<@!932816670756577281> "], application_id = 932816670756577281)
 
     async def on_ready(self):
         print(f"Lizard has been warmed and ready to eat bug as {self.user}")
