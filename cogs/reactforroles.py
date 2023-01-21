@@ -15,7 +15,10 @@ class ReactForRoles(commands.Cog):
             db.execute("CREATE TABLE IF NOT EXISTS reactionroles(guildID INTEGER, messageID INTEGER, emote text, role INTEGER, UNIQUE(guildID, messageID, emote, role))")
 
     @commands.Cog.listener("on_raw_reaction_add")
-    async def on_reaction_add(self, payload):
+    async def on_reaction_add(self, payload : discord.RawReactionActionEvent):
+        if self.bot.user.id == payload.user_id:
+            return
+
         rows = []
         with sqlite3.connect("database.db") as con:
             db = con.cursor()
@@ -30,6 +33,26 @@ class ReactForRoles(commands.Cog):
         
         await payload.member.add_roles(*roles)
     
+    @commands.Cog.listener("on_raw_reaction_remove")
+    async def on_reaction_removed(self, payload : discord.RawReactionActionEvent):
+        if self.bot.user.id == payload.user_id:
+            return
+
+        rows = []
+        with sqlite3.connect("database.db") as con:
+            db = con.cursor()
+            rows = db.execute("SELECT * FROM reactionroles WHERE guildID={} AND messageID={} AND emote='{}'".format(payload.guild_id, payload.message_id, payload.emoji)).fetchall()
+        
+        if len(rows) <= 0:
+            return
+        
+        member = self.bot.get_guild(payload.guild_id).get_member(payload.user_id)
+        roles = []
+        for r in rows:
+            roles.append(member.guild.get_role(r[3]))
+
+        await member.remove_roles(*roles)
+        
     async def get_message(self, interaction : discord.Interaction, channel, message_id):
         channel_id = re.sub(r'[^0-9]', '', channel)
 
@@ -72,11 +95,14 @@ class ReactForRoles(commands.Cog):
     )
     @app_commands.checks.has_permissions(administrator = True)
     async def rr_remove_all(self, interaction: discord.Interaction, channel : str, message_id : str):
-        message = await self.get_message(interaction, channel, message_id)
+        message : discord.Message = await self.get_message(interaction, channel, message_id)
 
         with sqlite3.connect("database.db") as con:
             db = con.cursor()
             db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={}".format(interaction.guild_id, message.id))
+
+        for r in message.reactions:
+            await r.remove(self.bot.user)
         
         await interaction.response.send_message("All react for roles removed from message 🦎")
     
@@ -109,7 +135,7 @@ class ReactForRoles(commands.Cog):
                 break
 
             if not re.match(r"<a?:.+?:\d{18}>", reply[0]) and not reply[0] in emoji.EMOJI_DATA:
-                await interaction.reponse.send_message("Reply recieved was not an emote")
+                await interaction.followup.send("Reply recieved was not an emote")
                 return
             
             emote = reply[0]
@@ -142,6 +168,9 @@ class ReactForRoles(commands.Cog):
         with sqlite3.connect("database.db") as con:
             db = con.cursor()
             db.executemany("INSERT OR IGNORE INTO reactionroles VALUES(?,?,?,?)", values)
+
+        for v in values:
+            await message.add_reaction(v[2])
         
         await interaction.followup.send("Your react for roles have been added 🦎")
 
@@ -179,7 +208,7 @@ class ReactForRoles(commands.Cog):
                 return
             
             emote = reply[0]
-
+            not_all_deleted = True
             while True:
                 await interaction.followup.send("@ the role to remove from this emote or 'done'. (use 'all' to delete all)")
 
@@ -196,7 +225,9 @@ class ReactForRoles(commands.Cog):
                     with sqlite3.connect("database.db") as con:
                         db = con.cursor()
                         db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(interaction.guild.id, message.id, emote))
+                    await message.remove_reaction(emote, self.bot.user)
                     await interaction.followup.send("All roles removed from emote 🦎")
+                    not_all_deleted = False
                     break
                 
                 reply = re.sub(r'[^0-9]', '', reply.content)
@@ -217,7 +248,16 @@ class ReactForRoles(commands.Cog):
                 with sqlite3.connect("database.db") as con:
                     db = con.cursor()
                     db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={} and emote='{}' and role={}".format(interaction.guild.id, message.id, emote, role.id))
-            await interaction.followup.send("Selected roles have been deleted from emote 🦎")
+                    db.execute("SELECT COUNT(*) FROM reactionroles WHERE guildID={} and messageID={} and emote='{}'".format(interaction.guild.id, message.id, emote, role.id))
+                    num_roles = db.fetchone()[0]
+
+                if num_roles <= 0:
+                    await message.remove_reaction(emote, self.bot.user)
+
+            if not_all_deleted:
+                await interaction.followup.send("Selected roles have been deleted from emote 🦎")
+            else:
+                not_all_deleted = True
 
 async def setup(bot):
     await bot.add_cog(ReactForRoles(bot))
