@@ -52,7 +52,13 @@ class ReactForRoles(commands.Cog):
             roles.append(member.guild.get_role(r[3]))
 
         await member.remove_roles(*roles)
-        
+    
+    commands.Cog.listener("on_raw_message_delete")
+    async def message_deleted(self, payload : discord.RawMessageUpdateEvent):
+        with sqlite3.connect("database.db") as con:
+            db = con.cursor()
+            db.execute("DELETE FROM reactionroles WHERE guildID={} and messageID={}".format(payload.guild_id, payload.message_id))
+
     async def get_message(self, interaction : discord.Interaction, channel, message_id):
         channel_id = re.sub(r'[^0-9]', '', channel)
 
