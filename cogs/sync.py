@@ -6,8 +6,14 @@ import discord
 class Sync(commands.Cog):
     @commands.command()
     @commands.has_permissions(administrator=True)
+    
     async def sync(
     self, ctx: Context, guilds: Greedy[discord.Object], spec: Optional[Literal["~", "*", "^"]] = None) -> None:
+        """
+            ~ syncs commands currently on guild
+            ^ removes commands from guild.
+            * copies all global commands to guild then syncs
+        """
         if not guilds:
             if spec == "~":
                 synced = await ctx.bot.tree.sync(guild=ctx.guild)
@@ -39,11 +45,23 @@ class Sync(commands.Cog):
 
     @commands.command()
     @commands.has_permissions(administrator=True)
+    async def refresh(self, ctx: Context):
+        print("refreshing")
+        await ctx.bot.tree.clear_commands(guild=ctx.guild)
+        await ctx.bot.tree.sync()
+        print("refreshing complete")
+
+
+    @commands.command()
+    @commands.has_permissions(administrator=True)
     async def clear(self, ctx: Context, type: Optional[Literal["guild", "global"]]):
         if type.lower() == "guild":
             await ctx.bot.tree.clear_commands(guild=ctx.guild)
+            await ctx.bot.tree.sync(guild=ctx.guild)
         elif type.lower() == "global":
-            await ctx.bot.tree.clear_commands()
+            await ctx.bot.tree.clear_commands(guild=None)
+            await ctx.bot.tree.sync()
+
 
 
 async def setup(bot):

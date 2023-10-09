@@ -3,6 +3,7 @@ from discord.ext import commands
 import discord
 import json
 import os
+import logging
 
 class LizardBotClient(commands.Bot):
 
@@ -11,7 +12,7 @@ class LizardBotClient(commands.Bot):
         intents.message_content = True
         intents.reactions = True
 
-        super().__init__(intents=intents, command_prefix=["<@932816670756577281> ", "<@!932816670756577281> "], application_id = 932816670756577281)
+        super().__init__(intents=intents, command_prefix=["<@932816670756577281> ", "<@!932816670756577281> "], application_id = 932816670756577281, log_level=logging.DEBUG)
 
     async def on_ready(self):
         print(f"Lizard has been warmed and ready to eat bug as {self.user}")
