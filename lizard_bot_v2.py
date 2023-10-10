@@ -24,6 +24,7 @@ async def load_extentions():
 
 async def startup():
     async with bot:
+        discord.utils.setup_logging()
         await load_extentions()
         await bot.start(token)
     
